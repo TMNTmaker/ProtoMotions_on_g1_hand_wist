@@ -136,7 +136,7 @@ class Simulator(ABC):
             dtype=torch.long,
             device=self.device,
         )
-        
+
         body_convert_to_sim = torch.tensor(
             [
                 self.robot_config.body_names.index(body_name)

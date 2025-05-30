@@ -14,10 +14,11 @@ from protomotions.envs.base_env.env import BaseEnv
 from protomotions.envs.mimic.components.mimic_obs import MimicObs
 from protomotions.envs.mimic.components.mimic_motion_manager import MimicMotionManager
 from protomotions.envs.mimic.components.masked_mimic_obs import MaskedMimicObs
-
+import ipdb
 
 class Mimic(BaseEnv):
     def __init__(self, config, device: torch.device, *args, **kwargs):
+        #ipdb.set_trace()
         super().__init__(config, device, *args, **kwargs)
         # Tracks the internal mimic metrics.
         self.mimic_info_dict = {}

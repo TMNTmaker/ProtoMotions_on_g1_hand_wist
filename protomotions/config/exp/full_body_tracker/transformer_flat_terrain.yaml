@@ -10,7 +10,10 @@ defaults:
   - /agent/mimic/models/mlp_critic_target_pose
   - /agent/mimic/options/global_tracking
   - /agent/mimic/options/early_termination_tracking_err
-
+num_envs: 64
+agent:
+  config:
+    batch_size: 512
 env:
   config:
     mimic_target_pose:

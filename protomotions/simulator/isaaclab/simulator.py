@@ -24,7 +24,7 @@ from protomotions.simulator.base_simulator.config import (
     SimulatorConfig,
 )
 from protomotions.simulator.base_simulator.robot_state import RobotState
-
+import ipdb
 
 class IsaacLabSimulator(Simulator):
     # =====================================================
@@ -77,12 +77,12 @@ class IsaacLabSimulator(Simulator):
         self._sim.set_camera_view([2.5, 0.0, 4.0], [0.0, 0.0, 2.0])
 
         scene_cfg = self._get_scene_cfg()
-
+        #ipdb.set_trace()
         self._scene = InteractiveScene(scene_cfg)
         if not self.headless:
             self._setup_keyboard()
         print("[INFO]: Setup complete...")
-
+        #ipdb.set_trace()
         self._robot = self._scene["robot"]
         self._contact_sensor = self._scene["contact_sensor"]
         self._object = []
@@ -103,7 +103,7 @@ class IsaacLabSimulator(Simulator):
         scene_cfgs = None
         if self.scene_lib is not None and self.scene_lib.total_spawned_scenes > 0:
             scene_cfgs, self._initial_scene_pos = self._preprocess_object_playground()
-
+        #ipdb.set_trace()
         scene_cfg = SceneCfg(
             config=self.config,
             robot_config=self.robot_config,

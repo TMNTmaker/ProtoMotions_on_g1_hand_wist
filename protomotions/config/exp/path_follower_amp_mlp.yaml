@@ -7,7 +7,7 @@ defaults:
   - /agent/ppo/models/mlp_actor_terrain
   - /agent/ppo/models/mlp_critic_terrain
   - /terrain/complex
-
+num_envs: 1024
 agent:
   config:
     task_reward_w: 0.5

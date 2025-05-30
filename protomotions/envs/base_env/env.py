@@ -21,7 +21,7 @@ from protomotions.envs.base_env.components.motion_manager import MotionManager
 
 from protomotions.utils.motion_lib import MotionLib
 from protomotions.utils.scene_lib import SceneLib
-
+import ipdb
 class BaseEnv:
     class StateInit(Enum):
         Default = 0
@@ -45,7 +45,7 @@ class BaseEnv:
         SimulatorConfigClass = get_class(self.config.simulator._config_target_)
         simulator_config: SimulatorConfig = SimulatorConfigClass.from_dict(self.config.simulator.config)
         SimulatorClass = get_class(self.config.simulator._target_)
-
+        #ipdb.set_trace()
         self.simulator: Simulator = SimulatorClass(
             config=simulator_config,
             scene_lib=self.scene_lib,

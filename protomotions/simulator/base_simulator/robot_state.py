@@ -185,11 +185,16 @@ class RobotState:
         new_dof_pos = self.dof_pos[:, conversion.dof_convert_to_sim] if self.dof_pos is not None else None
         new_dof_vel = self.dof_vel[:, conversion.dof_convert_to_sim] if self.dof_vel is not None else None
 
+        #import ipdb
+        #ipdb.set_trace()
+
         new_rigid_body_pos = self.rigid_body_pos[:, conversion.body_convert_to_sim] if self.rigid_body_pos is not None else None
         new_rigid_body_rot = None
         if self.rigid_body_rot is not None:
             rb_rot = self.rigid_body_rot[:, conversion.body_convert_to_sim]
             if not conversion.sim_w_last:
+                #import ipdb
+                #ipdb.set_trace()
                 rb_rot = rotations.xyzw_to_wxyz(rb_rot)
             new_rigid_body_rot = rb_rot
             

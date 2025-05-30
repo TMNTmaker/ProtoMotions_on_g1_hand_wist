@@ -3,7 +3,8 @@
 defaults:
   - ppo_mlp
   - /env/steering
-
+num_envs: 2048
+headless: False
 agent:
   config:
     task_reward_w: 1.0

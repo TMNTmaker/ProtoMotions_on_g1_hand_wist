@@ -27,7 +27,7 @@ from tqdm import tqdm
 from stl import mesh
 import logging
 import open3d as o3d
-
+import ipdb
 # Configure logging
 logging.basicConfig(
     level=logging.DEBUG, format="%(asctime)s - %(levelname)s - %(message)s"
@@ -276,6 +276,7 @@ class Humanoid_Batch:
                 ]  # you can sum it up since unitree's each joint has 1 dof. Last two are for hands. doesn't really matter.
             else:
                 if not len(self.actuated_joints_idx) == len(self.body_names):
+                    ipdb.set_trace()
                     return_dict.dof_pos = pose.sum(dim=-1)[
                         ..., self.actuated_joints_idx
                     ]

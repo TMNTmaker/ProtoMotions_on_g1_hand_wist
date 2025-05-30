@@ -78,6 +78,7 @@ def h1_mapping():
 def g1_mapping():
     #### Config for extension
     extend_config = [
+
         {
             "joint_name": "left_rubber_hand_2",
             "parent_name": "left_wrist_yaw_link",
@@ -125,6 +126,55 @@ def g1_mapping():
     ]
 
     asset_file = "protomotions/data/assets/mjcf/g1_original.xml"
+
+    return EasyDict(
+        extend_config=extend_config,
+        base_link=base_link,
+        joint_matches=joint_matches,
+        smpl_pose_modifier=smpl_pose_modifier,
+        asset_file=asset_file,
+    )
+
+
+def g1_hand_wrist_mapping():
+    #### Config for extension
+    extend_config = [
+        {
+            "joint_name": "head",
+            "parent_name": "pelvis",
+            "pos": [0.0, 0.0, 0.4],
+            "rot": [1.0, 0.0, 0.0, 0.0],
+        },
+    ]
+
+
+    base_link = "torso_link"
+    joint_matches = [
+        ["pelvis", "Pelvis"],
+        ["left_hip_yaw_link", "L_Hip"],
+        ["left_knee_link", "L_Knee"],
+        ["left_ankle_roll_link", "L_Ankle"],
+        ["right_hip_yaw_link", "R_Hip"],
+        ["right_knee_link", "R_Knee"],
+        ["right_ankle_roll_link", "R_Ankle"],
+        ["left_shoulder_pitch_link", "L_Shoulder"],
+        ["left_elbow_link", "L_Elbow"],
+        ["left_rubber_hand_2", "L_Hand"],
+        ["right_shoulder_pitch_link", "R_Shoulder"],
+        ["right_elbow_link", "R_Elbow"],
+        ["right_rubber_hand_2", "R_Hand"],
+        ["head", "Head"],
+    ]
+
+    smpl_pose_modifier = [
+        {"Pelvis": "[np.pi/2, 0, np.pi/2]"},
+        {"L_Shoulder": "[0, 0, -np.pi/2]"},
+        {"R_Shoulder": "[0, 0, np.pi/2]"},
+        {"L_Elbow": "[0, -np.pi/2, 0]"},
+        {"R_Elbow": "[0, np.pi/2, 0]"},
+    ]
+
+    asset_file = "protomotions/data/assets/mjcf/g1_hand_wrist_original.xml"
 
     return EasyDict(
         extend_config=extend_config,
@@ -312,5 +362,7 @@ def get_config(humanoid_type: str):
         return smplx_with_limits_mapping()
     elif humanoid_type == "g1":
         return g1_mapping()
+    elif humanoid_type == "g1_hand_wrist":
+        return g1_hand_wrist_mapping()
     else:
         raise NotImplementedError

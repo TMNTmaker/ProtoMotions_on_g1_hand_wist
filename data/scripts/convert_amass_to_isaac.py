@@ -46,7 +46,7 @@ def main(
 
     if robot_type is None:
         robot_type = humanoid_type
-    elif robot_type in ["h1", "g1"]:
+    elif robot_type in ["h1", "g1","g1_hand"]:
         assert (
             force_retarget
         ), f"Data is either SMPL or SMPL-X. The {robot_type} robot must use the retargeting pipeline."

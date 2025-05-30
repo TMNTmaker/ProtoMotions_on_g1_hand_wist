@@ -7,9 +7,15 @@ defaults:
   - /agent/ppo/models/mlp_actor
   - /agent/ppo/models/mlp_critic
   - /agent/amp/models/mlp_discriminator
-
+num_envs: 64
+headless: False
+agent:
+  config:
+    batch_size: 2048
+    discriminator_batch_size: 2048
 env:
   config:
     state_init: Data
     humanoid_obs:
       num_historical_steps: 8
+

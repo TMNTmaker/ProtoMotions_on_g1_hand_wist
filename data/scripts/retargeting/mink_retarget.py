@@ -1,4 +1,3 @@
-import ipdb
 import typer
 import pickle
 from dataclasses import dataclass
@@ -19,6 +18,7 @@ from smpl_sim.smpllib.smpl_local_robot import SMPL_Robot
 from smpl_sim.smpllib.smpl_joint_names import (
     SMPLH_BONE_ORDER_NAMES,
     SMPLH_MUJOCO_NAMES,
+    SMPL_MUJOCO_NAMES
 )
 
 import mink
@@ -86,6 +86,25 @@ _G1_KEYPOINT_TO_JOINT = {
 
 
 _G1_HAND_WRIST_KEYPOINT_TO_JOINT = {
+
+        "Pelvis": {"name": "pelvis", "weight": 1.0},
+    "Head": {"name": "head", "weight": 1.0},
+    # Legs.
+    "L_Hip": {"name": "left_hip_yaw_link", "weight": 1.0},
+    "R_Hip": {"name": "right_hip_yaw_link", "weight": 1.0},
+    "L_Knee": {"name": "left_knee_link", "weight": 1.0},
+    "R_Knee": {"name": "right_knee_link", "weight": 1.0},
+    "L_Ankle": {"name": "left_ankle_roll_link", "weight": 1.0},
+    "R_Ankle": {"name": "right_ankle_roll_link", "weight": 1.0},
+    # Arms.
+    "L_Elbow": {"name": "left_elbow_link", "weight": 1.0},
+    "R_Elbow": {"name": "right_elbow_link", "weight": 1.0},
+    "L_Wrist": {"name": "left_wrist_yaw_link", "weight": 1.0},
+    "R_Wrist": {"name": "right_wrist_yaw_link", "weight": 1.0},
+    "L_Shoulder": {"name": "left_shoulder_pitch_link", "weight": 1.0},
+    "R_Shoulder": {"name": "right_shoulder_pitch_link", "weight": 1.0}
+    }
+"""
     "pelvis": {"name": "pelvis", "weight": 1.0},
     "head": {"name": "head", "weight": 1.0},
 
@@ -130,8 +149,7 @@ _G1_HAND_WRIST_KEYPOINT_TO_JOINT = {
     "right_wrist_roll_link": {"name": "right_wrist_roll_link", "weight": 1.0},
     "left_wrist_pitch_link": {"name": "left_wrist_pitch_link", "weight": 1.0},
     "right_wrist_pitch_link": {"name": "right_wrist_pitch_link", "weight": 1.0},
-
-}
+    """
 
 
 _KEYPOINT_TO_JOINT_MAP = {
@@ -224,7 +242,6 @@ _G1_HAND_WRIST_VELOCITY_LIMITS = {
     "right_hand_thumb_1_joint": 12, 
     "right_hand_thumb_2_joint": 12
 }
-
 
 
 _VEL_LIMITS = {
@@ -429,7 +446,6 @@ def create_robot_motion(
     root_rot_tensor = torch.from_numpy(root_rot).float().reshape(B, seq_len, 1, 3)
 
     # Combine root rotation with joint poses
-    #ipdb.set_trace()
     poses_tensor = torch.cat(
         [
             root_rot_tensor,
@@ -534,231 +550,19 @@ def create_skeleton_motion(
     return SkeletonMotion.from_skeleton_state(new_sk_state, fps=mocap_fr)
 
 
-import matplotlib.pyplot as plt
-
-order ="XYZ"
-
-
-
-def euler_to_rotmat_xyz(euler: np.ndarray) -> np.ndarray:
-    """
-    オイラー角 (XYZ順, ラジアン) を回転行列に変換
-    入力: shape (..., 3)
-    出力: shape (..., 3, 3)
-    """
-    x, y, z = euler[..., 0], euler[..., 1], euler[..., 2]
-
-    cx, cy, cz = np.cos(x), np.cos(y), np.cos(z)
-    sx, sy, sz = np.sin(x), np.sin(y), np.sin(z)
-
-    rotmat = np.empty(euler.shape[:-1] + (3, 3))
-
-    rotmat[..., 0, 0] = cy * cz
-    rotmat[..., 0, 1] = cz * sx * sy - cx * sz
-    rotmat[..., 0, 2] = cx * cz * sy + sx * sz
-
-    rotmat[..., 1, 0] = cy * sz
-    rotmat[..., 1, 1] = cx * cz + sx * sy * sz
-    rotmat[..., 1, 2] = -cz * sx + cx * sy * sz
-
-    rotmat[..., 2, 0] = -sy
-    rotmat[..., 2, 1] = cy * sx
-    rotmat[..., 2, 2] = cx * cy
-
-    return rotmat
-
-def rotmat_to_euler_xyz(R: np.ndarray) -> np.ndarray:
-    """
-    回転行列 (XYZ順) をオイラー角 (ラジアン) に変換
-    入力: shape (..., 3, 3)
-    出力: shape (..., 3)
-    """
-    sy = -R[..., 2, 0]
-    cy = np.sqrt(R[..., 0, 0]**2 + R[..., 1, 0]**2)
-
-    # gimbal lock 判定
-    eps = 1e-6
-    singular = cy < eps
-
-    x = np.where(~singular, np.arctan2(R[..., 2, 1], R[..., 2, 2]), np.arctan2(-R[..., 1, 2], R[..., 1, 1]))
-    y = np.arctan2(sy, cy)
-    z = np.where(~singular, np.arctan2(R[..., 1, 0], R[..., 0, 0]), 0.0)
-
-    return np.stack([x, y, z], axis=-1)
-
-def euler_to_quat_xyz(euler: np.ndarray) -> np.ndarray:
-    """
-    オイラー角 (ラジアン, XYZ順) → クォータニオン (x, y, z, w)
-    入力: shape (..., 3)
-    出力: shape (..., 4)
-    """
-    x, y, z = euler[..., 0] / 2, euler[..., 1] / 2, euler[..., 2] / 2
-
-    cx, cy, cz = np.cos(x), np.cos(y), np.cos(z)
-    sx, sy, sz = np.sin(x), np.sin(y), np.sin(z)
-
-    qw = cx * cy * cz + sx * sy * sz
-    qx = sx * cy * cz - cx * sy * sz
-    qy = cx * sy * cz + sx * cy * sz
-    qz = cx * cy * sz - sx * sy * cz
-
-    return np.stack([qx, qy, qz, qw], axis=-1)
-
-def quat_to_euler_xyz(quat: np.ndarray) -> np.ndarray:
-    """
-    クォータニオン (x, y, z, w) → オイラー角 (ラジアン, XYZ順)
-    入力: shape (..., 4)
-    出力: shape (..., 3)
-    """
-    x, y, z, w = quat[..., 0], quat[..., 1], quat[..., 2], quat[..., 3]
-
-    t0 = +2.0 * (w * x + y * z)
-    t1 = +1.0 - 2.0 * (x * x + y * y)
-    X = np.arctan2(t0, t1)
-
-    t2 = +2.0 * (w * y - z * x)
-    t2 = np.clip(t2, -1.0, 1.0)
-    Y = np.arcsin(t2)
-
-    t3 = +2.0 * (w * z + x * y)
-    t4 = +1.0 - 2.0 * (y * y + z * z)
-    Z = np.arctan2(t3, t4)
-
-    return np.stack([X, Y, Z], axis=-1)
-
-def save_rotation_matrix_as_euler_plot(
-    R_matrices: np.ndarray,
-    save_path: str = "euler_comparison.png"
-):
-    """
-    回転行列系列からオイラー角に変換し、比較プロットを保存する。
-
-    Parameters:
-        R_matrices (T, 3, 3): 時系列の回転行列
-        save_path (str): 保存先のファイルパス（.png, .pdfなど対応）
-    """
-    T = R_matrices.shape[0]
-
-    # 回転行列 → オイラー角
-    euler_recovered = rotmat_to_euler_xyz(R_matrices)    # プロット
-    plt.figure(figsize=(10, 6))
-    for i, axis in enumerate(["X", "Y", "Z"]):
-        plt.plot(euler_recovered[:, i], label=f"Recovered {axis}")
-
-    plt.xlabel("Frame")
-    plt.ylabel("Angle (rad)")
-    plt.title("Euler Angles from Rotation Matrices vs Original")
-    plt.legend()
-    plt.grid(True)
-    plt.tight_layout()
-
-    # 保存
-    plt.savefig(save_path, dpi=300)
-    plt.close()
-    print(f"プロットを保存しました: {save_path}")
-
-
-
-def combine_pose_quaternion(root: np.ndarray, add_root_quat: np.ndarray):
-    """
-    root: [xi, yi, zi, w, x, y, z]  ← 元の姿勢 (クォータニオン + 位置)
-    add_root_quat: [qi, qj, qk, qw] ← 合成する回転 (クォータニオン)
-
-    戻り値: [xi', yi', zi', w', x', y', z'] ← 合成後の姿勢
-    """
-    # 分離
-    quat = root[0:4]  # [xi, yi, zi, w]
-    pos = root[4:7]   # [x, y, z]
-
-    # scipyは [x, y, z, w] 順なので変換
-    #ipdb.set_trace()
-    r_orig = sRot.from_quat(quat)
-    r_add = sRot.from_quat(add_root_quat)
-
-    # 合成: r_add * r_orig （r_addが先に適用される）
-    r_new = r_add * r_orig
-
-    #ipdb.set_trace()
-    quat_new = r_new.as_quat()  # [x, y, z, w]
-    pos_new = r_add.apply(pos)
-    return np.concatenate([quat_new,pos_new],0)  # [xi', yi', zi', w', x', y', z']
-    # 新しい姿勢
-
-
-def combine_pose_quaternion_all(root_quat: np.ndarray,root_pos: np.ndarray, add_root_quat: np.ndarray):
-    """
-    root_quat: [xi, yi, zi, w,]  ← 元の姿勢 (クォータニオン)
-    root_pos: [x,y,z]  ← 元の姿勢 (位置)
-    add_root_quat: [qi, qj, qk, qw] ← 合成する回転 (クォータニオン)
-
-    戻り値: [xi', yi', zi', w'],[ x', y', z'] ← 合成後の姿勢
-    """
-    # 分離
-    quat = root_quat  # [xi, yi, zi, w]
-    pos = root_pos   # [x, y, z]
-
-    # scipyは [x, y, z, w] 順なので変換
-    #ipdb.set_trace()
-    r_orig = sRot.from_quat(quat)
-    r_add = sRot.from_quat(add_root_quat)
-
-    # 合成: r_add * r_orig （r_addが先に適用される）
-    r_new = r_add * r_orig
-
-    #ipdb.set_trace()
-    quat_new = r_new.as_quat()  # [x, y, z, w]
-    pos_new = r_add.apply(pos)
-    #ipdb.set_trace()
-    return torch.from_numpy(quat_new),torch.from_numpy(pos_new)#np.concatenate([quat_new,pos_new],1)  # [xi', yi', zi', w', x', y', z']
-    # 新しい姿勢
-
-
-
-def save_rotation_quat_as_euler_plot(
-    quat: np.ndarray,
-    save_path: str = "euler_comparison.png"
-):
-
-    T = quat.shape[0]
-
-    euler_recovered = quat_to_euler_xyz(quat)    # プロット
-    plt.figure(figsize=(10, 6))
-    for i, axis in enumerate(["X", "Y", "Z"]):
-        plt.plot(euler_recovered[:, i], label=f"Recovered {axis}")
-
-    plt.xlabel("Frame")
-    plt.ylabel("Angle (rad)")
-    plt.title("Euler Angles from quat")
-    plt.legend()
-    plt.grid(True)
-    plt.tight_layout()
-
-    # 保存
-    plt.savefig(save_path, dpi=300)
-    plt.close()
-    print(f"プロットを保存しました: {save_path}")
-
-
-
-
 def retarget_motion(motion: SkeletonMotion, 
                     robot_type: str,
-                    euler_angles_root,
-                    pos_root, 
                     render: bool = False, 
-                    smplx_mujoco_joint_names = SMPLH_MUJOCO_NAMES):
+                    smplx_mujoco_joint_names = SMPL_MUJOCO_NAMES):
     global_translations = motion.global_translation.numpy()
     pose_quat_global = motion.global_rotation.numpy()
-    pose_quat= motion.local_rotation.numpy()
+
     timeseries_length = global_translations.shape[0]
     fps = motion.fps
     model = construct_model(robot_type, smplx_mujoco_joint_names)
     configuration = mink.Configuration(model)
 
     tasks = []
-
-    accumulated_root_quat = euler_to_quat_xyz(euler_angles_root)
-    save_rotation_quat_as_euler_plot(accumulated_root_quat)
 
     frame_tasks = {}
     for joint_name, retarget_info in _KEYPOINT_TO_JOINT_MAP[robot_type].items():
@@ -778,7 +582,6 @@ def retarget_motion(motion: SkeletonMotion,
 
     posture_task = mink.PostureTask(model, cost=1.0)
     tasks.append(posture_task)
-    #ipdb.set_trace()
     # Prepare MuJoCo model and data
     model = configuration.model
     data = configuration.data
@@ -818,7 +621,7 @@ def retarget_motion(motion: SkeletonMotion,
 
         # Set root orientation (next 4 values)
         data.qpos[3:7] = pose_quat_global[0, 0]
-        #ipdb.set_trace()
+
         configuration.update(data.qpos)
         mujoco.mj_forward(model, data)
         posture_task.set_target_from_configuration(configuration)
@@ -849,16 +652,12 @@ def retarget_motion(motion: SkeletonMotion,
                         target_pos *= _RESCALE_FACTOR[robot_type]
                     if robot_type in _OFFSET:
                         target_pos[2] += _OFFSET[robot_type]
-                    if joint_name == smplx_mujoco_joint_names[0]:  # root関節のみオイラー角から再構成
-                        target_rot =  accumulated_root_quat[max(0, t)].copy()
-                    else:
-                        target_rot = pose_quat_global[max(0, t), body_idx].copy()
+                    target_rot = pose_quat_global[max(0, t), body_idx].copy()
                     rot_matrix = sRot.from_quat(target_rot).as_matrix()
                     rot = mink.SO3.from_matrix(rot_matrix)
                     tasks[i].set_target(
                         mink.SE3.from_rotation_and_translation(rot, target_pos)
                     )
-                #   
 
                 # Update keypoint positions.
                 keypoint_pos = {}
@@ -887,11 +686,7 @@ def retarget_motion(motion: SkeletonMotion,
 
                 # Store poses and translations if we're past initialization
                 if t >= 0:
-                    #ipdb.set_trace()
                     retargeted_poses.append(data.qpos[7:].copy())
-
-                    #data.qpos[:7] = combine_pose_quaternion(data.qpos[:7],accumulated_root_quat[max(0, t)])
-                    #data.qpos[:4] = accumulated_root_quat[max(0, t)].copy()
                     retargeted_trans.append(data.qpos[:7].copy())
 
                 if render and key_callback.first_pose_only and t == 0:
@@ -914,32 +709,12 @@ def retarget_motion(motion: SkeletonMotion,
     # Convert stored motion to numpy arrays
     retargeted_poses = np.stack(retargeted_poses)
     retargeted_trans = np.stack(retargeted_trans)
-    #ipdb.set_trace()
-    retargeted_trans[:,:4] = accumulated_root_quat
-    #retargeted_trans[:,4:] = pos_root
-    #retargeted_trans = combine_pose_quaternion_all(retargeted_trans, accumulated_root_quat)
-    #ipdb.set_trace()
-    #retargeted_trans[:,4:] = 0
-    save_rotation_quat_as_euler_plot(retargeted_trans[:,:4], save_path="euler_comparison_retargeted.png")
 
-    
     # Create skeleton motion
-    if robot_type in ["h1", "g1","g1_hand_wrist"]:
-
-
-
+    if robot_type in ["h1", "g1", "g1_hand_wrist"]:
         retargeted_motion = create_robot_motion(
             retargeted_poses, retargeted_trans, global_translations, fps, robot_type
         )
-        #ipdb.set_trace()
-        #retargeted_motion["global_rotation"][:,0],retargeted_motion["global_translation"][:,0] =\
-        #      combine_pose_quaternion_all(retargeted_motion["global_rotation"][:,0],
-        #                                  retargeted_motion["global_translation"][:,0],
-        #                                  accumulated_root_quat)
-        #ipdb.set_trace()
-        #retargeted_motion["global_rotation"][:,0] = torch.from_numpy(accumulated_root_quat)
-
-
         return retargeted_motion
     else:
         skeleton_tree = SkeletonTree.from_mjcf(

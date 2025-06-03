@@ -1119,14 +1119,12 @@ class SkeletonMotion(SkeletonState):
         assert (
             type(skeleton_state) == SkeletonState
         ), "expected type of {}, got {}".format(SkeletonState, type(skeleton_state))
-        
         global_velocity = SkeletonMotion._compute_velocity(
             p=skeleton_state.global_translation, time_delta=1 / fps
         )
         global_angular_velocity = SkeletonMotion._compute_angular_velocity(
             r=skeleton_state.global_rotation, time_delta=1 / fps
         )
-
         return cls.from_state_vector_and_velocity(
             skeleton_tree=skeleton_state.skeleton_tree,
             state_vector=skeleton_state.tensor,

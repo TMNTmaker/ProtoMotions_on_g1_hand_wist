@@ -8,3 +8,6 @@ rendered_images/*
 results/*
 .DS_Store
 **/.DS_Store
+data/amass/ACCAD/*
+data/amass/ACCAD*/*
+data/smpl/*

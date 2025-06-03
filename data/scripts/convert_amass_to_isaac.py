@@ -30,7 +30,7 @@ TMP_SMPL_DIR = "/tmp/smpl"
 
 
 def main(
-    amass_root_dir: Path,
+    amass_root_dir: Path = None,
     robot_type: str = None,
     humanoid_type: str = "smpl",
     force_remake: bool = False,
@@ -46,7 +46,7 @@ def main(
 
     if robot_type is None:
         robot_type = humanoid_type
-    elif robot_type in ["h1", "g1","g1_hand"]:
+    elif robot_type in ["h1", "g1","g1_hand_wrist"]:
         assert (
             force_retarget
         ), f"Data is either SMPL or SMPL-X. The {robot_type} robot must use the retargeting pipeline."
@@ -114,6 +114,9 @@ def main(
         skeleton_tree = SkeletonTree.from_mjcf(humanoid_mjcf_path)
     else:
         skeleton_tree = None
+        #assert (
+        #    False
+        #), f"humanoid_mjcf_path is None"
 
     uuid_str = uuid.uuid4()
 
@@ -181,7 +184,7 @@ def main(
         files.sort()
 
         for filename in tqdm(files):
-            try:
+            #try:
                 relative_path_dir = filename.relative_to(data_dir).parent
                 outpath = (
                     save_dir
@@ -268,6 +271,7 @@ def main(
                 batch_size = motion_data["pose_aa"].shape[0]
 
                 if humanoid_type == "smpl":
+                    #ipdb.set_trace()
                     pose_aa = np.concatenate(
                         [motion_data["pose_aa"][:, :66], np.zeros((batch_size, 6))],
                         axis=1,
@@ -286,6 +290,7 @@ def main(
                         ],
                         axis=-1,
                     )
+                    ipdb.set_trace()
                     pose_aa_mj = pose_aa.reshape(batch_size, 52, 3)[:, smpl_2_mujoco]
                     pose_quat = (
                         sRot.from_rotvec(pose_aa_mj.reshape(-1, 3))
@@ -330,7 +335,7 @@ def main(
                     root_trans_offset,
                     is_local=True,
                 )
-
+                #ipdb.set_trace()
                 if generate_flipped:
                     formats = ["regular", "flipped"]
                 else:
@@ -399,7 +404,7 @@ def main(
                             outpath.stem + "_flipped" + outpath.suffix
                         )
                     print(f"Saving to {outpath}")
-                    if robot_type in ["h1", "g1"]:
+                    if robot_type in ["h1", "g1","g1_hand_wrist"]:
                         torch.save(new_sk_motion, str(outpath))
                     else:
                         new_sk_motion.to_file(str(outpath))
@@ -422,11 +427,11 @@ def main(
                     print(
                         f"Estimated completion time: {time.strftime('%H:%M:%S', time.localtime(time.time() + estimated_time_remaining))}\n"
                     )
-            except Exception as e:
-                print(f"Error processing {filename}")
-                print(f"Error: {e}")
-                print(f"Line: {e.__traceback__.tb_lineno}")
-                continue
+            #except Exception as e:
+            #    print(f"Error processing {filename}")
+            #    print(f"Error: {e}")
+            #    print(f"Line: {e.__traceback__.tb_lineno}")
+            #    continue
 
 
 if __name__ == "__main__":

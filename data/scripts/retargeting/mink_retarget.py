@@ -19,6 +19,7 @@ from smpl_sim.smpllib.smpl_local_robot import SMPL_Robot
 from smpl_sim.smpllib.smpl_joint_names import (
     SMPLH_BONE_ORDER_NAMES,
     SMPLH_MUJOCO_NAMES,
+    SMPL_MUJOCO_NAMES
 )
 
 import mink
@@ -86,6 +87,25 @@ _G1_KEYPOINT_TO_JOINT = {
 
 
 _G1_HAND_WRIST_KEYPOINT_TO_JOINT = {
+
+        "Pelvis": {"name": "pelvis", "weight": 1.0},
+    "Head": {"name": "head", "weight": 1.0},
+    # Legs.
+    "L_Hip": {"name": "left_hip_yaw_link", "weight": 1.0},
+    "R_Hip": {"name": "right_hip_yaw_link", "weight": 1.0},
+    "L_Knee": {"name": "left_knee_link", "weight": 1.0},
+    "R_Knee": {"name": "right_knee_link", "weight": 1.0},
+    "L_Ankle": {"name": "left_ankle_roll_link", "weight": 1.0},
+    "R_Ankle": {"name": "right_ankle_roll_link", "weight": 1.0},
+    # Arms.
+    "L_Elbow": {"name": "left_elbow_link", "weight": 1.0},
+    "R_Elbow": {"name": "right_elbow_link", "weight": 1.0},
+    "L_Wrist": {"name": "left_wrist_yaw_link", "weight": 1.0},
+    "R_Wrist": {"name": "right_wrist_yaw_link", "weight": 1.0},
+    "L_Shoulder": {"name": "left_shoulder_pitch_link", "weight": 1.0},
+    "R_Shoulder": {"name": "right_shoulder_pitch_link", "weight": 1.0}
+    }
+"""
     "pelvis": {"name": "pelvis", "weight": 1.0},
     "head": {"name": "head", "weight": 1.0},
 
@@ -130,8 +150,7 @@ _G1_HAND_WRIST_KEYPOINT_TO_JOINT = {
     "right_wrist_roll_link": {"name": "right_wrist_roll_link", "weight": 1.0},
     "left_wrist_pitch_link": {"name": "left_wrist_pitch_link", "weight": 1.0},
     "right_wrist_pitch_link": {"name": "right_wrist_pitch_link", "weight": 1.0},
-
-}
+    """
 
 
 _KEYPOINT_TO_JOINT_MAP = {
@@ -741,15 +760,58 @@ def save_rotation_quat_as_euler_plot(
 
 
 
+def quaternion_multiply(q1, q2):
+    """クォータニオンのハミルトン積 q1 * q2"""
+    #ipdb.set_trace()
+    x1, y1, z1, w1 = np.split(q1, 4, axis=-1)
+    x2, y2, z2, w2 = np.split(q2, 4, axis=-1)
+
+    x = w1 * x2 + x1 * w2 + y1 * z2 - z1 * y2
+    y = w1 * y2 - x1 * z2 + y1 * w2 + z1 * x2
+    z = w1 * z2 + x1 * y2 - y1 * x2 + z1 * w2
+    w = w1 * w2 - x1 * x2 - y1 * y2 - z1 * z2
+
+    return np.concatenate([x, y, z, w], axis=-1)
+
+def quaternion_conjugate(qq):
+    """クォータニオンの共役 q⁻¹（単位クォータニオン前提）"""
+
+    qq[:,0] = -qq[:,0]  # x成分を反転
+    qq[:,1] = -qq[:,1]  # y成分を反転
+    qq[:,2] = -qq[:,2]  # z成分を反転
+    return qq
+
+def rotate_vector_quat_style(p_quat, q_rot):
+    """
+    純粋クォータニオンp_vecをクォータニオンq_rotで回転（p' = qpq⁻¹）
+
+    Parameters:
+    - p_vec: (4,) 回転クォータニオン
+    - q_rot: (4,) 回転クォータニオン [x, y, z, w]
+
+    Returns:
+    - (3,) 回転後のベクトル
+    """
+    # ベクトルを純粋なクォータニオンにする（スカラー成分0）
+
+    # 回転処理 p' = q * p * q⁻¹
+    q_inv = quaternion_conjugate(q_rot)
+    temp = quaternion_multiply(q_rot, p_quat)
+    p_rotated_quat = quaternion_multiply(temp, q_inv)
+
+    # ベクトル部分だけ返す
+    return p_rotated_quat
+
+
+
+
 def retarget_motion(motion: SkeletonMotion, 
                     robot_type: str,
-                    euler_angles_root,
-                    pos_root, 
                     render: bool = False, 
-                    smplx_mujoco_joint_names = SMPLH_MUJOCO_NAMES):
+                    smplx_mujoco_joint_names = SMPL_MUJOCO_NAMES):
     global_translations = motion.global_translation.numpy()
     pose_quat_global = motion.global_rotation.numpy()
-    pose_quat= motion.local_rotation.numpy()
+
     timeseries_length = global_translations.shape[0]
     fps = motion.fps
     model = construct_model(robot_type, smplx_mujoco_joint_names)
@@ -757,8 +819,8 @@ def retarget_motion(motion: SkeletonMotion,
 
     tasks = []
 
-    accumulated_root_quat = euler_to_quat_xyz(euler_angles_root)
-    save_rotation_quat_as_euler_plot(accumulated_root_quat)
+    #accumulated_root_quat = euler_to_quat_xyz(euler_angles_root)
+    
 
     frame_tasks = {}
     for joint_name, retarget_info in _KEYPOINT_TO_JOINT_MAP[robot_type].items():
@@ -778,7 +840,6 @@ def retarget_motion(motion: SkeletonMotion,
 
     posture_task = mink.PostureTask(model, cost=1.0)
     tasks.append(posture_task)
-    #ipdb.set_trace()
     # Prepare MuJoCo model and data
     model = configuration.model
     data = configuration.data
@@ -818,7 +879,7 @@ def retarget_motion(motion: SkeletonMotion,
 
         # Set root orientation (next 4 values)
         data.qpos[3:7] = pose_quat_global[0, 0]
-        #ipdb.set_trace()
+
         configuration.update(data.qpos)
         mujoco.mj_forward(model, data)
         posture_task.set_target_from_configuration(configuration)
@@ -842,17 +903,19 @@ def retarget_motion(motion: SkeletonMotion,
                 for i, (joint_name, retarget_info) in enumerate(
                     _KEYPOINT_TO_JOINT_MAP[robot_type].items()
                 ):
+                    
                     body_idx = smplx_mujoco_joint_names.index(joint_name)
+                    #ipdb.set_trace()
                     target_pos = global_translations[max(0, t), body_idx, :].copy()
 
                     if robot_type in _RESCALE_FACTOR:
                         target_pos *= _RESCALE_FACTOR[robot_type]
                     if robot_type in _OFFSET:
                         target_pos[2] += _OFFSET[robot_type]
-                    if joint_name == smplx_mujoco_joint_names[0]:  # root関節のみオイラー角から再構成
-                        target_rot =  accumulated_root_quat[max(0, t)].copy()
-                    else:
-                        target_rot = pose_quat_global[max(0, t), body_idx].copy()
+                    #if joint_name == smplx_mujoco_joint_names[0]:  # root関節のみオイラー角から再構成
+                    #    target_rot =  accumulated_root_quat[max(0, t)].copy()
+                    #else:
+                    target_rot = pose_quat_global[max(0, t), body_idx].copy()
                     rot_matrix = sRot.from_quat(target_rot).as_matrix()
                     rot = mink.SO3.from_matrix(rot_matrix)
                     tasks[i].set_target(
@@ -892,6 +955,7 @@ def retarget_motion(motion: SkeletonMotion,
 
                     #data.qpos[:7] = combine_pose_quaternion(data.qpos[:7],accumulated_root_quat[max(0, t)])
                     #data.qpos[:4] = accumulated_root_quat[max(0, t)].copy()
+                    #data.qpos[:4] = rotate_vector_quat_style(data.qpos[:4], accumulated_root_quat[max(0, t)])
                     retargeted_trans.append(data.qpos[:7].copy())
 
                 if render and key_callback.first_pose_only and t == 0:
@@ -915,12 +979,13 @@ def retarget_motion(motion: SkeletonMotion,
     retargeted_poses = np.stack(retargeted_poses)
     retargeted_trans = np.stack(retargeted_trans)
     #ipdb.set_trace()
-    retargeted_trans[:,:4] = accumulated_root_quat
+    #retargeted_trans[:,:4] = accumulated_root_quat
+    #retargeted_trans[:,:4] = rotate_vector_quat_style(retargeted_trans[:,:4],accumulated_root_quat)
     #retargeted_trans[:,4:] = pos_root
-    #retargeted_trans = combine_pose_quaternion_all(retargeted_trans, accumulated_root_quat)
+    #retargeted_trans = combine_pose_quaternion_all(retargeted_trans[:,4:], accumulated_root_quat)
     #ipdb.set_trace()
     #retargeted_trans[:,4:] = 0
-    save_rotation_quat_as_euler_plot(retargeted_trans[:,:4], save_path="euler_comparison_retargeted.png")
+    #save_rotation_quat_as_euler_plot(retargeted_trans[:,:4], save_path="euler_comparison_retargeted.png")
 
     
     # Create skeleton motion

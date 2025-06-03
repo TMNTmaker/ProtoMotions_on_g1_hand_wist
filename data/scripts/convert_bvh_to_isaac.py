@@ -459,6 +459,10 @@ def main(
                         new_sk_motion = SkeletonMotion.from_skeleton_state(
                             new_sk_state, fps=cnv_fps
                         )
+                        
+
+
+
                         new_sk_motion = retarget_motion(
                             motion=new_sk_motion, 
                             robot_type=robot_type, 

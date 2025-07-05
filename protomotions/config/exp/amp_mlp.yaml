@@ -7,7 +7,7 @@ defaults:
   - /agent/ppo/models/mlp_actor
   - /agent/ppo/models/mlp_critic
   - /agent/amp/models/mlp_discriminator
-num_envs: 64
+num_envs: 256
 headless: False
 agent:
   config:
@@ -17,5 +17,5 @@ env:
   config:
     state_init: Data
     humanoid_obs:
-      num_historical_steps: 8
+      num_historical_steps: 1
 

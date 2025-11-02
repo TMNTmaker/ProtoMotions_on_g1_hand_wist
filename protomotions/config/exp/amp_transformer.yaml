@@ -4,20 +4,23 @@ defaults:
   - /agent/amp/agent
   - /env/base_env
 
-  - /agent/ppo/models/mlp_actor
-  - /agent/ppo/models/mlp_critic
-  - /agent/amp/models/mlp_discriminator
+  - /agent/ppo/models/transformer_actor
+  - /agent/ppo/models/mlp_critic_large
+  - /agent/amp/models/mlp_discriminator_large
+  - /agent/ppo/models/transformer_actor_terrain
+  - /agent/ppo/models/mlp_critic_terrain
 
 headless: True
-num_envs: 512
+num_envs: 1024
 agent:
   config:
     batch_size: 2048
     discriminator_batch_size: 2048
 env:
   config:
+    max_episode_length: 100
     state_init: Data
     humanoid_obs:
       use_max_coords_obs: False
       # 識別器には (s, s') の遷移を渡すため履歴を保持する
-      num_historical_steps: 4
+      num_historical_steps: 2

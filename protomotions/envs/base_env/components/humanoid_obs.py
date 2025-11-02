@@ -34,6 +34,14 @@ class HumanoidObs(BaseComponent):
             device=self.env.device,
         )
 
+    def _key_body_ids(self) -> Tensor:
+        # ロボット定義でキーボディが 1 個だけの場合、key_body_ids が 0 次元テンソルに
+        # なりインデックス結果の次元が落ちるため、常に 1 次元に揃える。
+        key_body_ids = self.env.key_body_ids
+        if key_body_ids.dim() == 0:
+            return key_body_ids.unsqueeze(0)
+        return key_body_ids
+
     def post_physics_step(self):
         self.humanoid_obs_hist_buf.rotate()
 
@@ -73,19 +81,53 @@ class HumanoidObs(BaseComponent):
 
         motion_ids = motion_ids.view(-1)
         motion_times = motion_times.view(-1).clamp(min=0)
+        # 参照モーションには接触情報がないため、現在の接触を履歴ステップ数だけ複製して
+        # motion_ids の展開後の形状に合わせる。
+        num_hist_steps = self.config.num_historical_steps - 1
+        body_contacts = self.env.simulator.get_bodies_contact_buf(env_ids)
+        body_contacts = (
+            body_contacts.unsqueeze(1).expand(-1, num_hist_steps, -1, -1).contiguous()
+        )
+        body_contacts = body_contacts.view(-1, *body_contacts.shape[2:])
 
         ref_state = self.env.motion_lib.get_motion_state(motion_ids, motion_times)
+        if self.config.use_max_coords_obs:
+            obs_ref = compute_humanoid_observations_max(
+                ref_state.rigid_body_pos,
+                ref_state.rigid_body_rot,
+                ref_state.rigid_body_vel,
+                ref_state.rigid_body_ang_vel,
+                torch.zeros(len(motion_ids), 1, device=self.env.device),
+                self.config.local_root_obs,
+                self.config.root_height_obs,
+                True,
+            )
+        else:
+            dof_pos = ref_state.dof_pos
+            dof_vel = ref_state.dof_vel
 
-        obs_ref = compute_humanoid_observations_max(
-            ref_state.rigid_body_pos,
-            ref_state.rigid_body_rot,
-            ref_state.rigid_body_vel,
-            ref_state.rigid_body_ang_vel,
-            torch.zeros(len(motion_ids), 1, device=self.env.device),
-            self.config.local_root_obs,
-            self.config.root_height_obs,
-            True,
-        )
+            root_pos = ref_state.rigid_body_pos[:, 0, :]
+            root_rot = ref_state.rigid_body_rot[:, 0, :]
+            root_vel = ref_state.rigid_body_vel[:, 0, :]
+            root_ang_vel = ref_state.rigid_body_ang_vel[:, 0, :]
+            key_body_pos = ref_state.rigid_body_pos[:, self._key_body_ids(), :]
+
+            obs_ref = compute_humanoid_observations(
+                root_pos,
+                root_rot,
+                root_vel,
+                root_ang_vel,
+                dof_pos,
+                dof_vel,
+                key_body_pos,
+                body_contacts,
+                torch.zeros(len(motion_ids), 1, device=self.env.device),
+                self.config.local_root_obs,
+                self.env.simulator.robot_config.dof_obs_size,
+                self.env.simulator.robot_config.dof_offsets,
+                self.env.simulator.robot_config.joint_axis,
+                True,
+            )
         self.humanoid_obs_hist_buf.set_hist(
             obs_ref.view(
                 len(env_ids), self.config.num_historical_steps - 1, -1
@@ -120,7 +162,7 @@ class HumanoidObs(BaseComponent):
             root_rot = current_state.rigid_body_rot[:, 0, :]
             root_vel = current_state.rigid_body_vel[:, 0, :]
             root_ang_vel = current_state.rigid_body_ang_vel[:, 0, :]
-            key_body_pos = current_state.rigid_body_pos[:, self.env.simulator.key_body_ids, :]
+            key_body_pos = current_state.rigid_body_pos[:, self._key_body_ids(), :]
 
             obs = compute_humanoid_observations(
                 root_pos,
@@ -130,10 +172,12 @@ class HumanoidObs(BaseComponent):
                 dof_pos,
                 dof_vel,
                 key_body_pos,
+                body_contacts,
                 ground_heights,
                 self.config.local_root_obs,
-                self.env.simulator.dof_obs_size,
-                self.env.simulator.get_dof_offsets(),
+                self.env.simulator.robot_config.dof_obs_size,
+                self.env.simulator.robot_config.dof_offsets,
+                self.env.simulator.robot_config.joint_axis,
                 True,
             )
         self.body_contacts[:] = body_contacts
@@ -156,18 +200,53 @@ class HumanoidObs(BaseComponent):
 
         motion_times = motion_times.view(-1).clamp(max=lengths).clamp(min=0)
 
-        ref_state = self.env.motion_lib.get_motion_state(motion_ids, motion_times)
-
-        obs_demo = compute_humanoid_observations_max(
-            ref_state.rigid_body_pos,
-            ref_state.rigid_body_rot,
-            ref_state.rigid_body_vel,
-            ref_state.rigid_body_ang_vel,
-            torch.zeros(len(motion_ids), 1, device=self.env.device),
-            self.config.local_root_obs,
-            self.config.root_height_obs,
-            True,
+        # デモ観測は環境に紐付かないため、接触はゼロで埋める。
+        body_contacts = torch.zeros(
+            len(motion_ids),
+            len(self.env.config.robot.body_names),
+            3,
+            dtype=torch.float,
+            device=self.env.device,
         )
+
+        ref_state = self.env.motion_lib.get_motion_state(motion_ids, motion_times)
+        if self.config.use_max_coords_obs:
+            obs_demo = compute_humanoid_observations_max(
+                ref_state.rigid_body_pos,
+                ref_state.rigid_body_rot,
+                ref_state.rigid_body_vel,
+                ref_state.rigid_body_ang_vel,
+                torch.zeros(len(motion_ids), 1, device=self.env.device),
+                self.config.local_root_obs,
+                self.config.root_height_obs,
+                True,
+            )
+        else:
+            dof_pos = ref_state.dof_pos
+            dof_vel = ref_state.dof_vel
+
+            root_pos = ref_state.rigid_body_pos[:, 0, :]
+            root_rot = ref_state.rigid_body_rot[:, 0, :]
+            root_vel = ref_state.rigid_body_vel[:, 0, :]
+            root_ang_vel = ref_state.rigid_body_ang_vel[:, 0, :]
+            key_body_pos = ref_state.rigid_body_pos[:, self._key_body_ids(), :]
+
+            obs_demo = compute_humanoid_observations(
+                root_pos,
+                root_rot,
+                root_vel,
+                root_ang_vel,
+                dof_pos,
+                dof_vel,
+                key_body_pos,
+                body_contacts,
+                torch.zeros(len(motion_ids), 1, device=self.env.device),
+                self.config.local_root_obs,
+                self.env.simulator.robot_config.dof_obs_size,
+                self.env.simulator.robot_config.dof_offsets,
+                self.env.simulator.robot_config.joint_axis,
+                True,
+            )
         return obs_demo
 
     def get_obs(self):

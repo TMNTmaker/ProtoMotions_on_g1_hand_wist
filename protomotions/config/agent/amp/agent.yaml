@@ -19,5 +19,5 @@ agent:
     discriminator_reward_w: 1.0
     discriminator_grad_penalty: 5
     discriminator_replay_keep_prob: 0.01
-    discriminator_replay_size: 100000
+    discriminator_replay_size: 200000
     num_discriminator_mini_epochs: 3

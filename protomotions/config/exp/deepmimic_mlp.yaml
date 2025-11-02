@@ -8,3 +8,9 @@ defaults:
   - /agent/ppo/models/mlp_critic
   - /agent/mimic/models/mlp_actor_phase
   - /agent/mimic/models/mlp_critic_phase
+
+env:
+  config:
+    humanoid_obs:
+      use_max_coords_obs: False
+      num_historical_steps: 2

@@ -1,423 +1,221 @@
-# ProtoMotions: Physics-based Character Animation
-*“Primitive or fundamental types of movement that serve as a basis for more complex motions.”*
+# ProtoMotions（G1 / AMP 拡張フォーク）
 
-- [What is this?](#what-is-this)
-- [Installation guide](#installation)
-- [Training built-in agents](#training-your-agent)
-- [Evaluating your agent](#evaluationvisualization)
+物理シミュレーション上のヒューマノイドに、モーションキャプチャから「歩き方・跳び方」などの動きの分布を学習させる、模倣学習＋強化学習の研究・実験コードです。
 
-# What is this?
+本リポジトリは [NVLabs/ProtoMotions](https://github.com/NVLabs/ProtoMotions) をベースに、**Unitree G1** への適用と **Adversarial Motion Priors (AMP)** の再現・調整を中心に拡張しています。
 
-This codebase contains our efforts in building interactive physically-simulated virtual agents.
-It supports both IsaacGym and IsaacLab.
+> **注（採用担当者向け）**  
+> フレームワーク本体（マルチシミュレータ抽象化、PPO、Hydra 構成、MaskedMimic 等）は上流プロジェクトの成果です。本フォークで実装・検証したのは、G1 向けアセット／リターゲティング、AMP の損失・報酬の原論文準拠化、実験設定の追加です。背景・目的の段落は仮置きなので、応募時に実績に合わせて書き換えてください。
 
-<div float="center">
-    <img src="assets/sofa.gif" width="300"/>
-    <img src="assets/vr-cartwheel.gif" width="300"/>
-    <img src="assets/reach.gif" width="300"/>
-    <img src="assets/path.gif" width="300"/>
-</div>
+---
 
-# Known Issues
+## 開発の背景・目的（仮）
 
-- **Genesis**:
-  - Does not yet support scene creation. Waiting for simulator to support unique objects for each humanoid.
-  - No support for keyboard control.
-  - Does not support the capsule humanoids (e.g., SMPL), due to lack of proper MJCF parsing.
-- **IsaacLab**:
-  - Sword and Shield and AMP characters are not fully tested. For animation purposes, we suggest focusing on the SMPL character.
+ヒューマノイドの運動制御では、タスク報酬だけだと「目的は達成するが動きが不自然」になりやすいです。AMP は、参照モーションの分布に近いスタイルを識別器で学習し、方策の報酬に乗せることで、自然な歩行・アクロバット動作を獲得する手法です。
 
-# Changelog
+本プロジェクトでは次を目的としました（仮）。
 
-<details>
-<summary>v2.0</summary>
+1. 研究用キャラクタ（SMPL / AMP humanoid）ではなく、実機に近い **Unitree G1** で AMP を動かす。
+2. BVH / AMASS から G1 関節への **リターゲティング** を通し、バックフリップ等の難易度の高い動作を学習データにする。
+3. 実装が論文・原版とずれていた AMP の **識別器損失・スタイル報酬** を原版に寄せ、学習の安定性を検証する。
 
-- Code cleanup and refactoring.
-  - Less inheritance and dependencies. This may lead to more code duplication, but much easier to parse and adapt.
-  - Moved common logic into components. These components are configurable to determine their behavior.
-  - All components and tasks return observation dictionaries. The network classes pick which observations to use in each component.
-- Extracted simulator logic from task.
-  - Common logic handles conversion to simulator-specific ordering.
-  - This should make it easier to extend to new simulators.
-- Added [Genesis](https://genesis-world.readthedocs.io/en/latest/index.html) support.
-- New retargeting pipeline, using [Mink](https://github.com/kevinzakka/mink).
+---
 
-</details>
-<details>
-<summary>v1.0</summary>
+## 使用技術
 
-Public release!
+| 領域 | 技術 | バージョン目安 |
+|------|------|----------------|
+| 言語 | Python | 3.10 推奨（Genesis 公式要件に合わせる場合） |
+| 深層学習 | PyTorch | IsaacGym: `2.2` / IsaacLab・Genesis: `2.5.0` 系 |
+| 学習ループ | PyTorch Lightning Fabric | IsaacGym: `2.3.3` / IsaacLab: `2.5.0.post0` |
+| 設定 | Hydra / OmegaConf | `hydra-core` 1.2〜1.3 |
+| アルゴリズム | PPO、AMP、ASE、DeepMimic 系、MaskedMimic | 上流実装＋本フォークの AMP 調整 |
+| シミュレータ | NVIDIA Isaac Gym / Isaac Lab、Genesis | いずれか 1 つを選択 |
+| 実験管理 | Weights & Biases | `wandb` 0.19 系 |
+| 人体モデル・リターゲット | SMPL/SMPL-X、PoseLib、[Mink](https://github.com/kevinzakka/mink) | — |
+| ロボット | Unitree G1（手・手首あり構成を追加） | URDF / MJCF / USD |
+| パッケージ | `setup.py` 上の dist 名 `protomotions` | `2.0` |
 
-</details>
+シミュレータごとのピン留めは `requirements_isaacgym.txt` / `requirements_isaaclab.txt` / `requirements_genesis.txt` を参照してください。
 
-> **Important:**</br>
-> This codebase builds heavily on [Hydra](https://hydra.cc/) and [OmegaConfig](https://omegaconf.readthedocs.io/).<br>
-> It is recommended to familiarize yourself with these libraries and how config composition works.
+---
 
-# Installation
+## 主な機能・本フォークで実装したこと
 
-This codebase supports IsaacGym, IsaacLab, and Genesis. You can install the simulation of your choice, and
-the simulation backend is selected via the configuration file.
+### 上流（ProtoMotions）が提供するもの
 
-First run `git lfs fetch --all` to fetch all files stored in git-lfs.
+- シミュレータ非依存の環境・エージェント構成（IsaacGym / IsaacLab / Genesis）
+- PPO を核とした学習（`protomotions/train_agent.py`）と評価（`protomotions/eval_agent.py`）
+- AMP / ASE / 全身トラッキング（DeepMimic 拡張）/ MaskedMimic
+- 地形・シーン生成、モーションライブラリ、Hydra による実験合成
 
-<details>
-<summary>IsaacGym</summary>
+### 本フォークで追加・変更したもの
 
-1. Install [IsaacGym](https://developer.nvidia.com/isaac-gym)
-```bash
-wget https://developer.nvidia.com/isaac-gym-preview-4
-tar -xvzf isaac-gym-preview-4
+- **Unitree G1 のロボット定義**  
+  `g1` / `g1_hand` / `g1_hand_wrist`（関節名・PD ゲイン・観測次元・URDF/USD/MJCF）。
+- **BVH → Isaac（PoseLib）変換**  
+  `data/scripts/convert_bvh_to_isaac.py`。オイラー角からクォータニオンへの変換で時間方向の符号連続性を保つ処理を実装。
+- **Mink リターゲティングの G1 対応**  
+  `data/scripts/retargeting/mink_retarget.py` にキーポイント対応・速度制限・MJCF パスを追加。AMASS 変換（`convert_amass_to_isaac.py`）からも G1 系を指定可能。
+- **学習用モーション**  
+  歩行系クリップに加え、バックフリップ等を G1（手・手首）スケルトンへマッピングした `.npy` を追加。
+- **AMP の原版寄せ**  
+  識別器を Least-Squares GAN 系の損失・報酬に変更し、weight decay や replay buffer サイズなどのハイパーパラメータを調整（コミット時点）。作業ツリーでは論文の logistic 損失への切り替えも残しています。
+- **実験設定**  
+  `amp_mlp` の整理、`amp_transformer`（Transformer actor + 地形対応）、`deepmimic_mlp` の観測設定。
+- **履歴観測**  
+  AMP 識別器入力（状態の時系列 `s, s', …`）向けに `HumanoidObs` の履歴リセット・デモ観測を拡張。
+
+---
+
+## こだわったポイント
+
+- **論文実装との対応**  
+  AMP は「識別器の目的関数」と「方策に渡すスタイル報酬」がずれると学習が壊れやすいです。BCE（logistic）と LS-GAN をコード上で切り替えられる形にし、原論文・原版コードの数式に戻せるようにしています。勾配ペナルティ・replay 混合・weight decay も識別器側に残しています。
+- **実機骨格へのリターゲティング**  
+  SMPL 空間のモーションを G1 の DoF・ボディ名に落とす際、固定関節の扱い、左右反転、Mink のキーポイント対応をロボット種別で分岐しています。BVH ではクォータニオンの符号ジャンプ（\(q\) と \(-q\)）が IK・補間を壊すため、時間方向に符号を揃えています。
+- **実験の再現性**  
+  学習エントリは Hydra の composition（`+exp` / `+robot` / `+simulator`）に寄せ、チェックポイントディレクトリの `config.yaml` から評価時に設定を復元します。
+- **シミュレータ差の吸収**  
+  IsaacGym は `torch` より先に import する必要があるため、CLI を先に走査してから Fabric / 環境を起動しています。
+
+改善余地: `convert_bvh_to_isaac.py` にデバッグ用の `ipdb` が残っています。
+
+---
+
+## リポジトリ構成（抜粋）
+
+```
+protomotions/
+  train_agent.py          # 学習エントリ（Hydra + Fabric）
+  eval_agent.py           # 評価・可視化
+  agents/                 # PPO / AMP / ASE / Mimic / MaskedMimic
+  envs/                   # タスク・観測コンポーネント
+  simulator/              # IsaacGym / IsaacLab / Genesis
+  config/                 # Hydra 設定
+data/scripts/             # AMASS/BVH 変換・リターゲティング
+poselib/                  # スケルトン・回転ユーティリティ
+isaac_utils/
 ```
 
-Install IsaacGym Python API:
+---
+
+## ローカルでの環境構築・起動手順
+
+GPU 付き Linux を前提とします。まず LFS を取得してください。
 
 ```bash
-pip install -e isaacgym/python
+git lfs fetch --all
 ```
-2. Once IG and PyTorch are installed, from the repository root install the ProtoMotions package and its dependencies with:
+
+シミュレータは **どれか 1 つ** を入れます。詳細な既知の制限は上流 README と同様です（Genesis のシーン／カプセル人体、IsaacLab の一部キャラクタ未検証など）。
+
+### 1. IsaacGym
+
+1. [IsaacGym Preview 4](https://developer.nvidia.com/isaac-gym) を導入し、Python API を入れる。
+2. リポジトリルートで:
+
 ```bash
 pip install -e .
 pip install -r requirements_isaacgym.txt
 pip install -e isaac_utils
 pip install -e poselib
-```
-Set the `PYTHON_PATH` env variable (not really needed, but helps the instructions stay consistent between sim and gym).
-```bash
 alias PYTHON_PATH=python
 ```
 
-### Potential Issues
+メモリ不足時は `num_envs=1024` のように環境数を下げてください。`python` 関連のリンクエラーでは `export LD_LIBRARY_PATH=${CONDA_PREFIX}/lib/` を試します。
 
-If you have python errors:
+### 2. IsaacLab
+
+1. [IsaacLab](https://isaac-sim.github.io/IsaacLab/main/source/setup/installation/index.html) を導入する。
+2. `isaaclab.sh` 経由で Python を使う。
 
 ```bash
-export LD_LIBRARY_PATH=${CONDA_PREFIX}/lib/
-```
-
-If you run into memory issues -- try reducing the number of environments by adding to the command line `num_envs=1024`
-
-</details>
-
-<details>
-<summary>IsaacLab</summary>
-
-1. Install [IsaacLab](https://isaac-sim.github.io/IsaacLab/main/source/setup/installation/index.html)
-2. Once IsaacLab is installed, from the repository root install the ProtoMotions package and its dependencies with:
-3. Set `PYTHON_PATH` to point at the `isaaclab.sh` script
-```bash
-For Linux: alias PYTHON_PATH="<isaac_lab_path> -p"
-# For example: alias PYTHON_PATH="/home/USERNAME/IsaacLab/isaaclab.sh -p"
-```
-4. Once IsaacLab is installed, from the protomotions repository root, install the Physical Animation package and its dependencies with:
-```bash
+alias PYTHON_PATH="/path/to/IsaacLab/isaaclab.sh -p"
 PYTHON_PATH -m pip install -e .
 PYTHON_PATH -m pip install -r requirements_isaaclab.txt
 PYTHON_PATH -m pip install -e isaac_utils
 PYTHON_PATH -m pip install -e poselib
 ```
 
-</details>
-<details>
-<summary>Genesis</summary>
+### 3. Genesis
 
-1. Install [Genesis](https://genesis-world.readthedocs.io/en/latest/index.html), install using **python 3.10**.
-2. Once Genesis is installed, from the repository root install the ProtoMotions package and its dependencies with:
+Python 3.10 で [Genesis](https://genesis-world.readthedocs.io/en/latest/index.html) を入れたうえで:
+
 ```bash
 pip install -e .
 pip install -r requirements_genesis.txt
 pip install -e isaac_utils
 pip install -e poselib
-```
-Set the `PYTHON_PATH` env variable (not really needed, but helps the instructions stay consistent between sim and gym).
-```bash
 alias PYTHON_PATH=python
 ```
 
-</details>
+### 学習（例）
 
-# Training Your Agent
+コマンドは `+robot` を `+simulator` より先に指定してください（IsaacGym の import 順のため）。
 
-A set of example scripts are provided in the `examples` folder. These present a simple and contained reference for how to use the framework's components.
-
-The simplest example for training an agent on the steering task is:
 ```bash
-PYTHON_PATH protomotions/train_agent.py +exp=steering_mlp +robot=h1 +simulator=<simulator> +experiment_name=h1_steering
+# 上流の例: H1 のステアリング（純粋なタスク報酬 + PPO）
+PYTHON_PATH protomotions/train_agent.py \
+  +exp=steering_mlp +robot=h1 +simulator=isaacgym +experiment_name=h1_steering
+
+# 本フォークの主眼: G1 + AMP（モーションファイルを指定）
+PYTHON_PATH protomotions/train_agent.py \
+  +exp=amp_mlp +robot=g1_hand_wrist +simulator=isaacgym \
+  motion_file=<path-to-npy-or-yaml> +experiment_name=g1_amp_mlp
+
+# Transformer actor 版
+PYTHON_PATH protomotions/train_agent.py \
+  +exp=amp_transformer +robot=g1_hand_wrist +simulator=isaacgym \
+  motion_file=<path-to-npy-or-yaml> +experiment_name=g1_amp_transformer
 ```
 
-<div float="center">
-    <img src="assets/isaaclab_h1_steering.gif" width="300"/>
-    <img src="assets/isaacgym_h1_steering.gif" width="300"/>
-    <img src="assets/genesis_h1_steering.gif" width="300"/>
-</div>
+`experiment_name` が同じだと `results/<name>/last.ckpt` から自動再開します。ログは `+opt=wandb` を付けると W&B に送れます。
 
-which will train a steering agent using the Unitree H1 humanoid on the selected simulator. This does not use any reference data or discriminative rewards. It optimizes using pure task-rewards using PPO.
+### 評価
 
-The `experiment_name` determines where all the experiment results and parameters will be stored. Each experiment should have a unique experiment name. When training with an existing experiment name, the training code will automatically resume from the last checkpoint.
+```bash
+PYTHON_PATH protomotions/eval_agent.py \
+  +robot=g1_hand_wrist +simulator=isaacgym \
+  motion_file=<path-to-motion> \
+  checkpoint=results/<experiment_name>/last.ckpt
+```
 
-## Backbone and Robot selection
+| キー | 動作 |
+|------|------|
+| `J` | 外力を加えて頑健性を確認 |
+| `R` | タスクリセット |
+| `O` | カメラ対象の切り替え |
+| `L` | 録画開始／保存 |
+| `;` | 録画キャンセル |
+| `Q` | 終了 |
 
-If you are using IsaacGym use the flag `+simulator=isaacgym`. For IsaacLab use `+simulator=isaaclab`. For Genesis use `+simulator=genesis`.
-Then select the robot you are training. For example, the SMPL humanoid robot is `+robot=smpl`. The code currently supports:
+モーションのキネマティック再生:
 
-| Robot            | Description                                                               |
-|------------------|---------------------------------------------------------------------------|
-| smpl             | SMPL humanoid                                                             |
-| smplx            | SMPL-X humanoid                                                           |
-| amp              | Adversarial Motion Priors humanoid                                        |
-| sword_and_shield | ASE sword and shield character                                            |
-| h1               | Unitree H1 humanoid with arm-stub (where the hand connects), toes, and head joints made visible |
+```bash
+PYTHON_PATH protomotions/scripts/play_motion.py <motion_file> <isaacgym|isaaclab|genesis> <robot_type>
+```
 
-## Provided Algorithms
+### データ変換（G1 向け・概要）
 
-<details>
-<summary>MaskedMimic</summary>
+1. AMASS / BVH を用意する。SMPL パラメータは上流ドキュメントどおり `data/smpl/` に配置。
+2. AMASS: `python data/scripts/convert_amass_to_isaac.py <AMASS_dir> --robot-type=g1_hand_wrist --force-retarget`
+3. BVH: `python data/scripts/convert_bvh_to_isaac.py`（`robot_type` に `g1` / `g1_hand` / `g1_hand_wrist`）
 
-In the first stage, you need to train a general motion tracker. At each step, this model receives the next K future poses.
-The second phase trains the masked mimic model to reconstruct the actions of the expert tracker trained in the first stage.
+ライセンス上公開できないモーションはリポジトリに含めず、パスだけ README に書いてください。
 
-1. **Train full body tracker:** Run `PYTHON_PATH protomotions/train_agent.py +exp=full_body_tracker/transformer_flat_terrain +robot=smpl +simulator=isaacgym motion_file=<motion file path> +experiment_name=full_body_tracker`
-2. Find the checkpoint of the first phase. It will be stored in `results/<experiment_name>/last.ckpt`. The next training should point to the folder and not the checkpoint.
-3. **Train MaskedMimic:** Run `PYTHON_PATH protomotions/train_agent.py +exp=masked_mimic/flat_terrain +robot=smpl +simulator=isaacgym motion_file=<motion file path> agent.config.expert_model_path=<path to phase 1 folder>`
-4. **Inference:** For an example of user-control, run `PYTHON_PATH protomotions/eval_agent.py +robot=smpl +simulator=isaacgym +opt=[masked_mimic/tasks/user_control] checkpoint=<path to maskedmimic checkpoint>`
+---
 
-add `+terrain=flat` to use a default flat terrain (this reduces loading time).
+## 引用・ライセンス
 
-</details>
+上流および依存プロジェクトのライセンスに従ってください。学術利用時は ProtoMotions / MaskedMimic / AMP / ASE 等の原論文の引用を推奨します。BibTeX は [NVLabs/ProtoMotions](https://github.com/NVLabs/ProtoMotions) を参照してください。
 
-<details>
-<summary>Full body motion tracking (Advanced DeepMimic)</summary>
-
-This model is the first stage in training MaskedMimic. Refer to the MaskedMimic section for instructions on training this model.
-</details>
-
-<details>
-<summary>AMP</summary>
-
-Adversarial Motion Priors (AMP, [arXiv](https://arxiv.org/abs/2104.02180)) trains
-an agent to produce motions with similar distributional characteristics to a given
-motion dataset. AMP can be combined with a task, encouraging the agent to solve the
-task with the provided motions.
-
-1. Run `PYTHON_PATH protomotions/train_agent.py +exp=amp_mlp motion_file=<path to motion file>`.
-2. Choose your robot, for example `+robot=amp`.
-3. Set simulator, for example `+simulator=genesis`.
-
-### Path Following
-
-One such task for AMP is path following. The character needs to follow a set of markers.
-To provide AMP with a path following task, similar to 
-[PACER](https://research.nvidia.com/labs/toronto-ai/trace-pace/), run the experiment `+exp=path_follower_amp_mlp`.
-
-</details>
-
-<details>
-<summary>ASE</summary>
-
-Adversarial Skill Embeddings (ASE, [arXiv](https://arxiv.org/abs/2205.01906)) trains
-a low-level skill generating policy. The low-level policy is conditioned on a latent
-variable z. Each latent variable represents a different motion. ASE requires a diverse
-dataset of motions, as opposed to AMP that can (and often should) be trained on a single (or small set of motions) motion.
-
-Run `PYTHON_PATH protomotions/train_agent.py +exp=ase_mlp motion_file=<path to motion dataset>`
-
-In order to train the sword-and-shield character, as in the original paper:
-1. Download the data from [ASE](https://github.com/nv-tlabs/ASE)
-2. Point the `motion_file` path to the dataset descriptor file `dataset_reallusion_sword_shield.yaml` (from the ASE codebase)
-3. Use the robot `+robot=sword_and_shield`
-</details>
-
-## Terrain
-
-An example for creating irregular terrains is provided in `examples/isaacgym_complex_terrain.py`.
-
-ProtoMotions handles the terrain generation in all experiments. By default we create a flat terrain that is large enough for all humanoids to spawn with comfortable spacing between them. This is similar to the standard `env_spacing`.
-By adding the flag `+terrain=complex`, the simulation will add an irregular terrain and normalize observations with respect to the terrain beneath the character. By default this terrain is a combination of stairs, slopes, gravel and also a flat region.
-
-A controller can be made aware of the terrain around it. See an example in the `path_follower_mlp` experiment config.
-
-During inference you can force a flat, and simple, terrain, by `+terrain=flat`. This is useful for inference, if you want to evaluate a controller (where the saved config defines a complex terrain) on a flat and simple terrain.
-
-## Scenes
-
-An example for creating a scene with an elephant object placed on a floating table is provided in `examples/isaaclab_spawning_scenes.py`.
-
-Similar to the motion library, we introduce SceneLib. This scene-management library handles spawning scenes across the simulated world.
-Scenes can be very simple, but can also be arbitrarily complex. The simplest scenes are a single non-movable object, for example from the [SAMP](https://samp.is.tue.mpg.de/) dataset.
-Complex scenes can have one-or-more objects and these objects can be both non-movable and also moveable.
-Each object has a set of properties, such as the position within the scene, and also a motion file that defines the motion of the object when performing motion-tracking tasks.
-
-## Logging
-
-To properly log and track your experiments we suggest using "Weights and Biases" by adding the flag `+opt=wandb`.
-
-# Evaluation/Visualization
-
-To evaluate the trained agent, run `PYTHON_PATH protomotions/eval_agent.py +robot=<robot> +simulator=<simulator> motion_file=<path to motion file> checkpoint=results/<experiment name>/last.ckpt`.
-
-We provide a set of pre-defined keyboard controls.
-
-| Key | Description                                                                |
-|-----|----------------------------------------------------------------------------|
-| `J` | Apply physical force to all robots (tests robustness)                      |
-| `R` | Reset the task                                                             |
-| `O` | Toggle camera. Will cycle through all entities in the scene.               |
-| `L` | Toggle recording video from viewer. Second click will save frames to video |
-| `;` | Cancel recording                                                           |
-| `U` | Update inference parameters (e.g., in MaskedMimic user control task)       |
-| `Q` | Quit       |
-
-## Configurations
-
-This repo is aimed to be versatile and fast to work with. Everything should be configurable, and elements should be composable by combining configs.
-For example, see the MaskedMimic configurations under the experiment folder.
-
-# Data
-
-Training the agents requires using mocap data. The `motion_file` parameter receives either an `.npy` file, for a single motion, or a `.yaml` for an entire dataset of motions.
-
-We provide example motions to get you started:
-- AMP humanoid: `data/motions/amp_humanoid_walk.npy`
-- AMP + sword and shield humanoid: `data/motions/amp_sword_and_shield_humanoid_walk.npy`
-- SMPL humanoid: `data/motions/smpl_humanoid_walk.npy`
-- SMPL-X humanoid: `data/motions/smplx_humanoid_walk.npy`
-- H1 (with head, toes, and arm-stubs): `data/motions/h1_walk.npy`
-
-The data processing pipeline follows the following procedure:
-1. Download the data.
-2. Convert AMASS to Isaac (PoseLib) format.
-3. Create a YAML file with the data information (filename, FPS, textual labels, etc...).
-4. Package (pre-process) the data for faster loading.
-
-Motions can be visualized via kinematic replay by running `PYTHON_PATH protomotions/scripts/play_motion.py <motion file> <simulator isaacgym/isaaclab/genesis> <robot type>`.
-
-
-## Download Data
-1. Download the [SMPL](https://smpl.is.tue.mpg.de/) v1.1.0 parameters and place them in the `data/smpl/` folder. Rename the files basicmodel_neutral_lbs_10_207_0_v1.1.0, basicmodel_m_lbs_10_207_0_v1.1.0.pkl, basicmodel_f_lbs_10_207_0_v1.1.0.pkl to SMPL_NEUTRAL.pkl, SMPL_MALE.pkl and SMPL_FEMALE.pkl. 
-2. Download the [SMPL-X](https://smpl-x.is.tue.mpg.de/) v1.1 parameters and place them in the `data/smpl/` folder. Rename the files to SMPLX_NEUTRAL.pkl, SMPLX_MALE.pkl and SMPLX_FEMALE.pkl. 
-3. Download the [AMASS](https://amass.is.tue.mpg.de/) dataset.
-
-## Convert the motions to MotionLib format
-
-Run `python data/scripts/convert_amass_to_isaac.py <path_to_AMASS_data>`.
-- If using SMPL-X data, set `--humanoid-type=smplx`.
-- To retarget to the Unitree H1, set `--robot-type=h1` and `--force-retarget`. This will use [Mink](https://github.com/kevinzakka/mink/) for retargeting the motions.
-
-## YAML files
-
-You can create your own YAML files for full-control over the process.
-<details>
-<summary>Create your own YAML files</summary>
-Example pre-generated YAML files are provided in `data/yaml_files`. To create your own YAML file, follow these steps:
-
-1. Download the textual labels, `index.csv`, `train_val.txt, and `test.txt` from the [HML3D](https://github.com/EricGuo5513/HumanML3D) dataset.
-2. Run `python data/scripts/create_motion_fps_yaml.py` and provide it with the path to the extracted AMASS (or AMASS-X) data. This will create a `.yaml` file with the true FPS for each motion. If using AMASS-X, provide it with the flags `--humanoid-type=smlx` and `--amass-fps-file` that points to the FPS file for the original AMASS dataset (e.g. `data/yaml_files/motion_fps_smpl.yaml`).
-3. Run `python data/scripts/process_hml3d_data.py <yaml_file_path> --relative-path=<path_to_AMASS_data>` set `--occlusion-data-path=data/amass/amassx_occlusion_v1.pkl`,  `--humanoid-type=smplx` and `--motion-fps-path=data/yaml_files/motion_fps_smplx.yaml` if using SMPL-X.
-4. To also include flipped motions, run `python data/scripts/create_flipped_file.py <path_to_yaml_file_from_last_step>`. Keep in mind that SMPL-X seems to have certain issues with flipped motions. They are not perfectly mirrored.
-
-</details>
-
-Alternatively, you can use the pre-generated YAML files in `data/yaml_files`.
-
-## Package the data for faster loading
-Run `python data/scripts/package_motion_lib.py <path_to_yaml_file> <path_to_AMASS_data_dir> <output_pt_file_path>` set `--humanoid-type=smplx` if using SMPL-X. Add the flag `--create-text-embeddings` to create text embeddings (for MaskedMimic).
-
-# Citation
-
-This codebase builds upon prior work from NVIDIA and external collaborators. Please adhere to the relevant licensing in the respective repositories.
-If you use this code in your work, please consider citing our works:
 ```bibtex
 @misc{ProtoMotions,
   title = {ProtoMotions: Physics-based Character Animation},
   author = {Tessler, Chen and Juravsky, Jordan and Guo, Yunrong and Jiang, Yifeng and Coumans, Erwin and Peng, Xue Bin},
   year = {2024},
   publisher = {GitHub},
-  journal = {GitHub repository},
   howpublished = {\url{https://github.com/NVLabs/ProtoMotions/}},
 }
-
-@inproceedings{tessler2024masked,
-  title={MaskedMimic: Unified Physics-Based Character Control Through Masked Motion},
-  author={Tessler, Chen and Guo, Yunrong and Nabati, Ofir and Chechik, Gal and Peng, Xue Bin},
-  booktitle={ACM Transactions On Graphics (TOG)},
-  year={2024},
-  publisher={ACM New York, NY, USA}
-}
-
-@inproceedings{tessler2023calm,
-  title={CALM: Conditional adversarial latent models for directable virtual characters},
-  author={Tessler, Chen and Kasten, Yoni and Guo, Yunrong and Mannor, Shie and Chechik, Gal and Peng, Xue Bin},
-  booktitle={ACM SIGGRAPH 2023 Conference Proceedings},
-  pages={1--9},
-  year={2023},
-}
 ```
-
-Also consider citing these prior works that helped contribute to this project:
-```bibtex
-@inproceedings{juravsky2024superpadl,
-  title={SuperPADL: Scaling Language-Directed Physics-Based Control with Progressive Supervised Distillation},
-  author={Juravsky, Jordan and Guo, Yunrong and Fidler, Sanja and Peng, Xue Bin},
-  booktitle={ACM SIGGRAPH 2024 Conference Papers},
-  pages={1--11},
-  year={2024}
-}
-
-@inproceedings{luo2024universal,
-    title={Universal Humanoid Motion Representations for Physics-Based Control},
-    author={Zhengyi Luo and Jinkun Cao and Josh Merel and Alexander Winkler and Jing Huang and Kris M. Kitani and Weipeng Xu},
-    booktitle={The Twelfth International Conference on Learning Representations},
-    year={2024},
-    url={https://openreview.net/forum?id=OrOd8PxOO2}
-}
-
-@inproceedings{Luo2023PerpetualHC,
-    author={Zhengyi Luo and Jinkun Cao and Alexander W. Winkler and Kris Kitani and Weipeng Xu},
-    title={Perpetual Humanoid Control for Real-time Simulated Avatars},
-    booktitle={International Conference on Computer Vision (ICCV)},
-    year={2023}
-}            
-
-@inproceedings{rempeluo2023tracepace,
-    author={Rempe, Davis and Luo, Zhengyi and Peng, Xue Bin and Yuan, Ye and Kitani, Kris and Kreis, Karsten and Fidler, Sanja and Litany, Or},
-    title={Trace and Pace: Controllable Pedestrian Animation via Guided Trajectory Diffusion},
-    booktitle={Conference on Computer Vision and Pattern Recognition (CVPR)},
-    year={2023}
-} 
-
-@inproceedings{hassan2023synthesizing,
-  title={Synthesizing physical character-scene interactions},
-  author={Hassan, Mohamed and Guo, Yunrong and Wang, Tingwu and Black, Michael and Fidler, Sanja and Peng, Xue Bin},
-  booktitle={ACM SIGGRAPH 2023 Conference Proceedings},
-  pages={1--9},
-  year={2023}
-}
-```
-
-# References and Thanks
-This project repository builds upon the shoulders of giants. 
-* [IsaacGymEnvs](https://github.com/isaac-sim/IsaacGymEnvs) for reference IsaacGym code. For example, terrain generation code.
-* [OmniIsaacGymEnvs](https://github.com/isaac-sim/OmniIsaacGymEnvs) for reference IsaacSim code.
-* [DeepMimic](https://github.com/xbpeng/DeepMimic) our full body tracker (Mimic) can be seen as a direct extension of DeepMimic.
-* [ASE/AMP](https://github.com/nv-tlabs/ASE) for adversarial motion generation reference code.
-* [PACER](https://github.com/nv-tlabs/pacer) for path generator code.
-* [PADL/SuperPADL](https://github.com/nv-tlabs/PADL2) and Jordan Juravsky for initial code structure with PyTorch lightning
-* [PHC](https://github.com/ZhengyiLuo/PHC) for AMASS preprocessing and conversion to Isaac (PoseLib) and reference on working with SMPL robotic humanoid.
-* [SMPLSim](https://github.com/ZhengyiLuo/SMPLSim) for SMPL and SMPL-X simulated humanoid.
-* [OmniH2O](https://omni.human2humanoid.com/) and [PHC-H1](https://github.com/ZhengyiLuo/PHC/tree/h1_phc) for AMASS to Isaac H1 conversion script.
-* [rl_games](https://github.com/Denys88/rl_games) for reference PPO code.
-* [Mink](https://github.com/kevinzakka/mink/) and Kevin Zakka for help with the retargeting.
-
-The following people have contributed to this project:
-* Chen Tessler, Yifeng Jiang, Xue Bin Peng, Erwin Coumans, Kelly Guo, and Jordan Juravsky.
-
-# Dependencies
-This project uses the following packages:
-* PyTorch, [LICENSE](https://github.com/pytorch/pytorch/blob/main/LICENSE)
-* PyTorch Lightning, [LICENSE](https://github.com/Lightning-AI/pytorch-lightning/blob/master/LICENSE)
-* IsaacGym, [LICENSE](https://developer.download.nvidia.com/isaac/NVIDIA_Isaac_Gym_Pre-Release_Evaluation_EULA_19Oct2020.pdf)
-* IsaacSim, [LICENSE](https://docs.omniverse.nvidia.com/isaacsim/latest/common/NVIDIA_Omniverse_License_Agreement.html)
-* IsaacLab, [LICENSE](https://isaac-sim.github.io/IsaacLab/main/source/refs/license.html)
-* Genesis, [LICENSE](https://github.com/Genesis-Embodied-AI/Genesis/blob/main/LICENSE)
-* SMPLSim, [LICENSE](https://github.com/ZhengyiLuo/SMPLSim/blob/0ec11c8dd3115792b8cf0bfeaef64e8c81be592a/LICENSE)
-* Mink, [LICENSE](https://github.com/kevinzakka/mink/blob/main/LICENSE)

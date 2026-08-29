@@ -1,13 +1,33 @@
 */babel/*.json
 .idea
+.vscode/
+.ipynb_checkpoints/
 *__pycache__*
 *.egg-info
-outputs/*
-rendered_images/*
-*tmp*
-results/*
 .DS_Store
 **/.DS_Store
-data/amass/ACCAD/*
-data/amass/ACCAD*/*
+
+# 学習・評価の出力
+outputs/
+results/
+output/
+rendered_images/
+wandb/
+*.tfevents.*
+*.mp4
+
+# README 用 GIF の元動画置き場（assets/ の GIF だけを追跡する）
+movies/
+
+# モーションデータ（AMASS / SMPL はライセンス上再配布不可）
+data/amass/*
+!data/amass/.gitkeep
 data/smpl/*
+
+# シミュレータ・リターゲティングの副産物
+MUJOCO_LOG.TXT
+**/.thumbs/
+
+# 一時ファイル
+*.tmp
+tmp/
